@@ -1,0 +1,297 @@
+---
+title: "10 Things I Hate About You Sentiment Analysis"
+author: "Georgianna James"
+date: '2022-03-13'
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Intro
+
+In this file, I conduct a text analysis of the scrip 10 Things I Hate About You. First, I investigate which words were most frequently used throughout the film and by which characters. Then, I analyze the data for sentiment using the Bing dictionary and the AFFIN dictionary. 
+
+# Set Up
+
+## Required Packages
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(ggwordcloud)
+library(here)
+
+
+theme_set(theme_minimal())
+
+set.seed(123)
+```
+
+## Load and tidy data
+
+```{r message=FALSE, warning=FALSE}
+# load the data set for each line 
+movie_lines <- read_csv(here("data", "movie_lines.tsv"), col_names=FALSE)
+
+movie_lines <- movie_lines %>% 
+  separate(X1, into = c('lineID', 'charID', 'movieID', 'charName', 'text'), sep = '\t')
+
+# load the data for titles in order to select for the film I am analyzing
+
+movie_titles <- read_csv(here("data", "movie_titles_metadata.tsv"), col_names=FALSE)
+
+
+movie_titles <- movie_titles %>% 
+    separate(X1, into = c('movieID', 'title', 'year', 'ratingIMDB', 'votes', 'genresIMDB'), sep = '\t')
+
+# create a data frame for the film 10 Things I Hate About You
+ten_things_lines <- movie_lines %>% 
+  left_join(movie_titles, by = 'movieID') %>% 
+  filter(movieID == "m0") %>% 
+  select(charName, text) 
+
+
+# tokenize by word
+ten_things_lines <- unnest_tokens(
+  tbl = ten_things_lines,
+  output = word,
+  input = text
+)
+
+```
+
+
+# Text Analysis
+
+## What are the most frequently used words in the film?
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+ten_things_lines %>%
+  # delete stopwords
+  anti_join(stop_words) %>%
+  count(word) %>%
+  # keep only top 100 words for wordcloud
+  slice_max(order_by = n, n = 100) %>%
+  mutate(angle = 90 * sample(c(0, 1), n(), replace = TRUE, prob = c(70, 30))) %>%
+  ggplot(aes(label = word, size = n, angle = angle)) +
+  geom_text_wordcloud(rm_outside = TRUE) +
+  scale_size_area(max_size = 15) +
+  ggtitle("Most frequent tokens in 10 Things I Hate About You") +
+  theme_minimal()
+```
+
+
+
+
+## Summary
+
+One can conclude from the above word plot that 10 Things I Hate About You is a romantic movie about sisters in high school who are primarily intersted in stereotypical teenage priorities like dates, prom, and parties. This observation is pretty accurate to the real plot of the movie. 
+
+
+## What are the most frequently used words in the film by each character?
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ten_things_lines %>%
+  # delete stopwords
+  anti_join(stop_words) %>%
+  # summarize count per word per book
+  count(charName, word) %>%
+  # get top 15 words per book
+  group_by(charName) %>%
+  filter(n > 1) %>% 
+  slice_max(order_by = n, n = 5) %>%
+  mutate(word = reorder_within(word, n, charName)) %>%
+  # create barplot
+  ggplot(aes(x = word, y = n, fill = charName)) + 
+  geom_col() +
+  scale_x_reordered() +
+  labs(title = "Most frequent words in 10 Things I Hate About You by Character",
+       x = NULL,
+       y = "Word count") +
+  facet_wrap(facets = vars(charName), scales = "free") +
+  coord_flip() +
+  theme(legend.position = "none")
+```
+
+
+
+## Summary
+
+If you are familiar with the plot of 10 Things I Hate About You, you might find that the second plot is even more telling than the first. From analyzing the visualization above, you find that, true to the plot of the film, Bianca does a lot of talking to her 'daddy' and about dates and parties and being a normal girl; Joey talks a lot about dating someone's sister; Kat talks a lot about Bianca and school. Additionally, 'money' shows up on Patrick's plot, revealing a crucial plot point (that Patrick is paid to ask Kat out on a date). 
+
+
+
+## Sentiment Analysis Using Bing Dictionary 
+
+```{r message=FALSE, warning=FALSE}
+
+#load the bing dictionary and join by word 
+
+ten_things_bing <- ten_things_lines %>%
+  inner_join(get_sentiments("bing"))
+```
+
+
+## What are the most frequently used positive and negative words? 
+
+
+```{r echo=FALSE}
+ten_things_bing %>%
+  # count words per sentiment
+  group_by(sentiment) %>%
+  count(word) %>% 
+  group_by(sentiment) %>%
+  # select top 10
+  slice_max(order_by = n, n = 10) %>%
+  mutate(word = reorder_within(word, n, sentiment)) %>%
+  # visualize the most frequent positive and negative words
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(facets = vars(sentiment), scales = "free_y") +
+  labs(
+    title = "Sentimental words used in 10 Things I Hate About You",
+    x = NULL,
+    y = "Number of occurences"
+  ) +
+  coord_flip()
+```
+
+
+
+## Summary
+
+It's no surprise that 'hate' is high on the list of frequently used negative words, given it's in the title of the film, followed by 'lie,' which is also an important plot point. On the positive graph, the token 'like' is the most frequently used positive word in the film. However, as those who are familiar with teen rom-coms from the late '90s might recall, 'like' is very commonly used as a filler word, in addition to the literal usage of the term, but I've chosen to keep it because I know 'like' is also important to the plot.
+
+
+## What are the most frequently used positive and negative words by each character? 
+
+
+```{r echo=FALSE}
+ten_things_bing %>%
+  # count frequency of sentimental word per character 
+  group_by(charName, sentiment) %>%
+  count(word) %>%
+  # extract 10 most frequent pos/neg words per book
+  group_by(charName, sentiment) %>%
+  filter(sentiment == "positive", n > 1) %>%
+  mutate(word = reorder_within(word, n, charName)) %>%
+  ggplot(aes(word, n, fill = charName)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(facets = vars(charName), scales = "free_y") +
+  labs(
+    title = "Positive words used by each character in 10 Things I Hate About You",
+    x = NULL,
+    y = "Number of occurences"
+  ) +
+  coord_flip()
+```
+```{r echo=FALSE}
+ten_things_bing %>%
+  # count frequency of sentimental word per character 
+  group_by(charName, sentiment) %>%
+  count(word) %>%
+  # extract 10 most frequent pos/neg words per book
+  group_by(charName, sentiment) %>%
+  filter(sentiment == "negative", n > 1) %>%
+  mutate(word = reorder_within(word, n, charName)) %>%
+  ggplot(aes(word, n, fill = charName)) +
+  geom_col(show.legend = FALSE) +
+  scale_x_reordered() +
+  facet_wrap(facets = vars(charName), scales = "free_y") +
+  labs(
+    title = "Negative words used by each character in 10 Things I Hate About You",
+    x = NULL,
+    y = "Number of occurences"
+  ) +
+  coord_flip()
+```
+
+
+
+## Summary
+
+Kat uses many more negative and positive words than any other character, suggeting that she is the protagonist (which she is). Other characters that use a lot of sentimental words are Cameron and Patrick, who are also main characters. 
+
+
+## Sentiment Analysis 
+### Using AFINN Dictionary 
+
+```{r message=FALSE, warning=FALSE}
+
+#load the AFINN dictionary and join by word 
+
+ten_things_afinn <- ten_things_lines %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(charName)
+```
+
+
+## What is the emotional score of each character in 10 Things I Hate About You?
+```{r echo=FALSE}
+ten_things_afinn %>%
+  group_by(charName) %>%
+  summarize(value = sum(value)) %>%
+  ggplot(mapping = aes(x = charName, y = value, fill = charName)) +
+  geom_col() +
+  labs(
+    title = "Emotional Score of 10 Things I Hate About You Characters",
+    subtitle = "AFINN sentiment dictionary",
+    x = "Character Name",
+    y = "Emotional score"
+  ) +
+  theme(legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 60))
+```
+
+
+
+## Summary
+
+From the plot of emotional scores, you find that Bianca displays the most positivity in her lines, while Patrick the most negative. Both findings make sense in the context of the plot, as Bianca pretty much only talks about parties and dating the whole film, while Patrick is the 'bad boy' of the movie, which lends to a lower emotional score.
+
+
+## What are the most frequent sentimental tokens used in the film (for both the Bing dictionary and the AFFIN dictionary)
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+
+ten_things_bing %>% 
+  count(word) %>%
+  # keep only top 100 words for wordcloud
+  slice_max(order_by = n, n = 100) %>%
+  mutate(angle = 90 * sample(c(0, 1), n(), replace = TRUE, prob = c(70, 30))) %>%
+  ggplot(aes(label = word, size = n, angle = angle)) +
+  geom_text_wordcloud(rm_outside = TRUE) +
+  scale_size_area(max_size = 15) +
+  ggtitle("Most frequent tokens in 10 Things I Hate About You (Bing dictionary)") +
+  theme_minimal()
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ten_things_afinn %>% 
+  count(word) %>%
+  # keep  top 100 words 
+  slice_max(order_by = n, n = 100) %>%
+  mutate(angle = 90 * sample(c(0, 1), n(), replace = TRUE, prob = c(70, 30))) %>%
+  ggplot(aes(label = word, size = n, angle = angle)) +
+  geom_text_wordcloud(rm_outside = TRUE) +
+  scale_size_area(max_size = 15) +
+  ggtitle("Most frequent tokens in 10 Things I Hate About You (AFINN dictionary)") +
+  theme_minimal()
+```
+
+
+
+# Conclusion
+
+Analyzing the script of 10 Things I Hate About You for sentiment allows you to pick up on some important plot information. For example, the results revealed that the film is generally about sisters, high school, dating, partying and prom. Breaking the analysis down by character, you can see that Kat has a lot of both positive and negative lines, but averages out to be a positive character, suggesting that she is a main character with a positive ending (which is pretty accurate), while Patrick scores the most negative, capturing the bad boy attitude of the character Patrick. While text analysis of a movie script allows you to pick up on trends that can be captured in words, you are also limited to sentiment that can be captured in text. For example, in this analysis, Bianca is depicted as a very positive character who mostly talks about parties and dating. However, those who are familiar with this film may be surprised to find that this character scores the highest on the emotional scale from the AFINN dictionary, as she might not come off as positively as her lines depict. This is likely because text analysis does not pick up on the way characters deliver lines. However, we were able to glean a lot of information about the emotional landscape of the film regardless.
+
+
